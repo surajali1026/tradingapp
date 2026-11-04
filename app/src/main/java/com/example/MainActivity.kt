@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -40,12 +41,18 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DonutLarge
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
@@ -68,15 +75,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.CandlePriceSource
 import com.example.data.model.DrawingToolType
 import com.example.data.model.Timeframe
 import com.example.ui.MainViewModel
+import com.example.ui.OrientationMode
 import com.example.ui.alerts.AlertsDialog
 import com.example.ui.chart.CandlestickChart
 import com.example.ui.chart.PriceScaleSettingsDialog
 import com.example.ui.drawings.DrawingToolbar
+import com.example.ui.drawings.FavoriteDrawingToolsBar
 import com.example.ui.drawings.SelectedDrawingPropertyBar
 import com.example.ui.markets.MarketListSheet
 import com.example.ui.replay.BarReplayControls
@@ -153,6 +165,37 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
     val barReplayState by viewModel.barReplayState.collectAsStateWithLifecycle()
     val isSelectingReplayCandle by viewModel.isSelectingReplayCandle.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val orientationMode by viewModel.orientationMode.collectAsStateWithLifecycle()
+    val isFullscreen by viewModel.isFullscreen.collectAsStateWithLifecycle()
+    val favoriteDrawingTools by viewModel.favoriteDrawingTools.collectAsStateWithLifecycle()
+    val isFavoritesBarVisible by viewModel.isFavoritesBarVisible.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val activity = context as? ComponentActivity
+
+    // Programmatic orientation switching (Portrait, Landscape, Sensor)
+    LaunchedEffect(orientationMode) {
+        activity?.requestedOrientation = when (orientationMode) {
+            OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            OrientationMode.SENSOR -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        }
+    }
+
+    // Fullscreen system bars toggling
+    LaunchedEffect(isFullscreen) {
+        val window = activity?.window
+        if (window != null) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            if (isFullscreen) {
+                insetsController.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     // Dialog & overlay visibilities
     var showMarketSheet by remember { mutableStateOf(false) }
@@ -169,7 +212,7 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
     BackHandler(
         enabled = showMarketSheet || showScaleSettingsDialog || showAlertsDialog ||
                 showCustomTimeframeDialog || showCircularSelector || isDrawingToolbarOpen ||
-                barReplayState.isReplayMode || isSelectingReplayCandle
+                barReplayState.isReplayMode || isSelectingReplayCandle || isFullscreen
     ) {
         when {
             showCircularSelector -> showCircularSelector = false
@@ -180,6 +223,7 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
             isDrawingToolbarOpen -> isDrawingToolbarOpen = false
             isSelectingReplayCandle -> viewModel.toggleReplayCandleSelection()
             barReplayState.isReplayMode -> viewModel.stopReplay()
+            isFullscreen -> viewModel.setFullscreen(false)
         }
     }
 
@@ -212,130 +256,176 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .statusBarsPadding()
+                .padding(if (isFullscreen) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding)
+                .then(if (isFullscreen) Modifier else Modifier.statusBarsPadding())
         ) {
-            // 1. TOP HEADER APP BAR (Symbol, 24h Change, Quick Actions)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(46.dp)
-                    .background(DarkSurface)
-                    .border(0.5.dp, DarkBorder)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Market Symbol Selector (Only USDT Perpetual Contracts)
+            // Top Header Bars (Only visible when not in Fullscreen Mode)
+            if (!isFullscreen) {
+                // 1. TOP HEADER APP BAR (Symbol, 24h Change, Quick Actions)
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { showMarketSheet = true }
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .background(DarkSurface)
+                        .border(0.5.dp, DarkBorder)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = currentSymbol,
-                        color = TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Icon(
-                        imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Select USDT Contract",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    // Market Symbol Selector (Only USDT Perpetual Contracts)
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showMarketSheet = true }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentSymbol,
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select USDT Contract",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
 
-                    // 24h Change Pill
-                    currentTicker?.let { t ->
-                        val isPos = t.priceChangePercent >= 0.0
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background((if (isPos) BullGreen else BearRed).copy(alpha = 0.2f))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = (if (isPos) "+" else "") + String.format(Locale.US, "%.2f%%", t.priceChangePercent),
-                                color = if (isPos) BullGreen else BearRed,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        // 24h Change Pill
+                        currentTicker?.let { t ->
+                            val isPos = t.priceChangePercent >= 0.0
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background((if (isPos) BullGreen else BearRed).copy(alpha = 0.2f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = (if (isPos) "+" else "") + String.format(Locale.US, "%.2f%%", t.priceChangePercent),
+                                    color = if (isPos) BullGreen else BearRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
-                }
 
-                // Quick Header Action Icons
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Drawing Toolbar toggle
-                    IconButton(
-                        onClick = { isDrawingToolbarOpen = !isDrawingToolbarOpen },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Timeline,
-                            contentDescription = "Drawing Tools",
-                            tint = if (isDrawingToolbarOpen) TVBlue else TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Bar Replay toggle
-                    IconButton(
-                        onClick = {
-                            if (barReplayState.isReplayMode) {
-                                viewModel.stopReplay()
-                            } else {
-                                viewModel.toggleReplayCandleSelection()
-                            }
-                        },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "Bar Replay",
-                            tint = if (barReplayState.isReplayMode || isSelectingReplayCandle) BinanceGold else TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Alerts button with active badge
-                    val activeAlertsCount = alerts.count { it.symbol.equals(currentSymbol, ignoreCase = true) && it.isActive }
-                    IconButton(
-                        onClick = { showAlertsDialog = true },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        BadgedBox(
-                            badge = {
-                                if (activeAlertsCount > 0) {
-                                    Badge(containerColor = AlertLineColor) {
-                                        Text(text = activeAlertsCount.toString(), color = Color.Black)
-                                    }
-                                }
-                            }
+                    // Quick Header Action Icons
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Favorite Drawing Tools toggle
+                        IconButton(
+                            onClick = { viewModel.toggleFavoritesBar() },
+                            modifier = Modifier.size(34.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = "Alerts",
-                                tint = if (activeAlertsCount > 0) AlertLineColor else TextSecondary,
+                                imageVector = Icons.Default.Star,
+                                contentDescription = "Favorite Tools Bar",
+                                tint = if (isFavoritesBarVisible) BinanceGold else TextSecondary,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Drawing Toolbar toggle
+                        IconButton(
+                            onClick = { isDrawingToolbarOpen = !isDrawingToolbarOpen },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Timeline,
+                                contentDescription = "Drawing Tools",
+                                tint = if (isDrawingToolbarOpen) TVBlue else TextSecondary,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Orientation toggle (Portrait, Landscape, Sensor)
+                        IconButton(
+                            onClick = { viewModel.toggleOrientation() },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ScreenRotation,
+                                contentDescription = "Display Mode",
+                                tint = when (orientationMode) {
+                                    OrientationMode.PORTRAIT -> TextSecondary
+                                    OrientationMode.LANDSCAPE -> TVBlue
+                                    OrientationMode.SENSOR -> BinanceGold
+                                },
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Fullscreen toggle
+                        IconButton(
+                            onClick = { viewModel.toggleFullscreen() },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = "Fullscreen Mode",
+                                tint = if (isFullscreen) TVBlue else TextSecondary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
 
-                    // Scale Settings button
-                    IconButton(
-                        onClick = { showScaleSettingsDialog = true },
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "Price Scale",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(19.dp)
-                        )
+                        // Bar Replay toggle
+                        IconButton(
+                            onClick = {
+                                if (barReplayState.isReplayMode) {
+                                    viewModel.stopReplay()
+                                } else {
+                                    viewModel.toggleReplayCandleSelection()
+                                }
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "Bar Replay",
+                                tint = if (barReplayState.isReplayMode || isSelectingReplayCandle) BinanceGold else TextSecondary,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // Alerts button with active badge
+                        val activeAlertsCount = alerts.count { it.symbol.equals(currentSymbol, ignoreCase = true) && it.isActive }
+                        IconButton(
+                            onClick = { showAlertsDialog = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            BadgedBox(
+                                badge = {
+                                    if (activeAlertsCount > 0) {
+                                        Badge(containerColor = AlertLineColor) {
+                                            Text(text = activeAlertsCount.toString(), color = Color.Black)
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = "Alerts",
+                                    tint = if (activeAlertsCount > 0) AlertLineColor else TextSecondary,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
+
+                        // Scale Settings button
+                        IconButton(
+                            onClick = { showScaleSettingsDialog = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Price Scale",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -644,7 +734,7 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
                         modifier = Modifier.size(18.dp)
                     )
                 }
-            }
+            } // End of if (!isFullscreen)
 
             // 4. BAR REPLAY BANNER / SELECTION PROMPT
             if (isSelectingReplayCandle) {
@@ -714,12 +804,126 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
                     modifier = Modifier.fillMaxSize().testTag("candlestick_chart")
                 )
 
-                // Floating Drawing Toolbar
+                // Floating Favorite Drawing Tools Bar (Draggable anywhere on chart)
+                FavoriteDrawingToolsBar(
+                    isVisible = isFavoritesBarVisible,
+                    favoriteTools = favoriteDrawingTools,
+                    activeTool = activeDrawingTool,
+                    onSelectTool = { tool -> viewModel.setActiveDrawingTool(tool) },
+                    onOpenFullToolbar = { isDrawingToolbarOpen = true },
+                    onClose = { viewModel.toggleFavoritesBar() }
+                )
+
+                // Minimal Floating Header Controls when in Fullscreen Mode
+                if (isFullscreen) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface.copy(alpha = 0.90f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Symbol & Market Sheet
+                            Text(
+                                text = currentSymbol,
+                                color = TextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { showMarketSheet = true }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+
+                            // Timeframe Chip
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(TVBlue.copy(alpha = 0.25f))
+                                    .clickable {
+                                        circularSelectorOffset = Offset(300f, 250f)
+                                        showCircularSelector = true
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = currentTimeframe.displayName,
+                                    color = TVBlue,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Price Source Switcher: Last / Mark / Index
+                            listOf(
+                                Triple(CandlePriceSource.LAST, "Last", TVBlue),
+                                Triple(CandlePriceSource.MARK, "Mark", MarkPriceCyan),
+                                Triple(CandlePriceSource.INDEX, "Index", IndexPricePurple)
+                            ).forEach { (source, label, color) ->
+                                val isSelected = candlePriceSource == source
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isSelected) color else DarkSurfaceVariant)
+                                        .clickable { viewModel.setCandlePriceSource(source) }
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) (if (source == CandlePriceSource.MARK) Color.Black else Color.White) else TextSecondary,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+
+                            // Orientation toggle
+                            IconButton(
+                                onClick = { viewModel.toggleOrientation() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ScreenRotation,
+                                    contentDescription = "Rotate",
+                                    tint = when (orientationMode) {
+                                        OrientationMode.PORTRAIT -> TextSecondary
+                                        OrientationMode.LANDSCAPE -> TVBlue
+                                        OrientationMode.SENSOR -> BinanceGold
+                                    },
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            // Exit Fullscreen Button
+                            IconButton(
+                                onClick = { viewModel.toggleFullscreen() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FullscreenExit,
+                                    contentDescription = "Exit Fullscreen",
+                                    tint = BinanceGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Full Floating Drawing Toolbar
                 DrawingToolbar(
                     isOpen = isDrawingToolbarOpen,
                     activeTool = activeDrawingTool,
+                    favoriteTools = favoriteDrawingTools,
                     areDrawingsHidden = areDrawingsHidden,
                     onSelectTool = { tool -> viewModel.setActiveDrawingTool(tool) },
+                    onToggleFavorite = { tool -> viewModel.toggleFavoriteDrawingTool(tool) },
                     onToggleHideDrawings = { viewModel.toggleHideDrawings() },
                     onDeleteAllDrawings = { viewModel.deleteAllDrawings() }
                 )
@@ -734,6 +938,7 @@ fun TradingPlatformScreen(viewModel: MainViewModel) {
                     onDismiss = { showCircularSelector = false }
                 )
             }
+
         }
 
         // 7. MODAL BOTTOM SHEETS & DIALOGS

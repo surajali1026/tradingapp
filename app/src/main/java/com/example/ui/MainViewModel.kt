@@ -101,6 +101,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSelectingReplayCandle = MutableStateFlow(false)
     val isSelectingReplayCandle = _isSelectingReplayCandle.asStateFlow()
 
+    // Orientation & Fullscreen states
+    private val _orientationMode = MutableStateFlow(OrientationMode.PORTRAIT)
+    val orientationMode = _orientationMode.asStateFlow()
+
+    private val _isFullscreen = MutableStateFlow(false)
+    val isFullscreen = _isFullscreen.asStateFlow()
+
+    // Favorite Drawing Tools
+    private val _favoriteDrawingTools = MutableStateFlow(preferences.getFavoriteDrawingTools())
+    val favoriteDrawingTools = _favoriteDrawingTools.asStateFlow()
+
+    private val _isFavoritesBarVisible = MutableStateFlow(preferences.isFavoritesBarVisible())
+    val isFavoritesBarVisible = _isFavoritesBarVisible.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
@@ -496,8 +510,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _candles.value = CandleAggregator.aggregate(_rawBaseCandles.value, _currentTimeframe.value)
     }
 
+    // Orientation & Fullscreen Actions
+    fun toggleOrientation() {
+        _orientationMode.value = when (_orientationMode.value) {
+            OrientationMode.PORTRAIT -> OrientationMode.LANDSCAPE
+            OrientationMode.LANDSCAPE -> OrientationMode.SENSOR
+            OrientationMode.SENSOR -> OrientationMode.PORTRAIT
+        }
+    }
+
+    fun setOrientationMode(mode: OrientationMode) {
+        _orientationMode.value = mode
+    }
+
+    fun toggleFullscreen() {
+        _isFullscreen.value = !_isFullscreen.value
+    }
+
+    fun setFullscreen(fullscreen: Boolean) {
+        _isFullscreen.value = fullscreen
+    }
+
+    // Favorite Drawing Tools Actions
+    fun toggleFavoriteDrawingTool(tool: DrawingToolType) {
+        val current = _favoriteDrawingTools.value.toMutableList()
+        if (current.contains(tool)) {
+            current.remove(tool)
+        } else {
+            current.add(tool)
+        }
+        _favoriteDrawingTools.value = current
+        preferences.saveFavoriteDrawingTools(current)
+    }
+
+    fun toggleFavoritesBar() {
+        val next = !_isFavoritesBarVisible.value
+        _isFavoritesBarVisible.value = next
+        preferences.setFavoritesBarVisible(next)
+    }
+
     override fun onCleared() {
         repository.disconnect()
         super.onCleared()
     }
+}
+
+enum class OrientationMode {
+    PORTRAIT,
+    LANDSCAPE,
+    SENSOR
 }

@@ -236,4 +236,39 @@ class TradingPreferences(context: Context) {
         obj.put("showIndexPrice", settings.showIndexPrice)
         prefs.edit().putString("chart_scale_settings", obj.toString()).apply()
     }
+
+    // Favorite Drawing Tools
+    fun getFavoriteDrawingTools(): List<DrawingToolType> {
+        val raw = prefs.getString("favorite_drawing_tools", null) ?: return listOf(
+            DrawingToolType.TREND_LINE,
+            DrawingToolType.HORIZONTAL_LINE,
+            DrawingToolType.RECTANGLE,
+            DrawingToolType.FIB_RETRACEMENT,
+            DrawingToolType.PRICE_RANGE
+        )
+        val arr = JSONArray(raw)
+        val list = mutableListOf<DrawingToolType>()
+        for (i in 0 until arr.length()) {
+            try {
+                list.add(DrawingToolType.valueOf(arr.getString(i)))
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        return list
+    }
+
+    fun saveFavoriteDrawingTools(tools: List<DrawingToolType>) {
+        val arr = JSONArray()
+        tools.forEach { arr.put(it.name) }
+        prefs.edit().putString("favorite_drawing_tools", arr.toString()).apply()
+    }
+
+    fun isFavoritesBarVisible(): Boolean {
+        return prefs.getBoolean("is_favorites_bar_visible", true)
+    }
+
+    fun setFavoritesBarVisible(visible: Boolean) {
+        prefs.edit().putBoolean("is_favorites_bar_visible", visible).apply()
+    }
 }

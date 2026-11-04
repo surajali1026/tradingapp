@@ -138,107 +138,151 @@ fun CandlestickChart(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
-            // Tap Gestures
-            .pointerInput(activeDrawingTool, drawings, candles, candleWidth, scrollOffset) {
-                detectTapGestures(
-                    onLongPress = { offset ->
-                        // Long press toggles crosshair at touch location or circular timeframe if near center
-                        if (isCrosshairEnabled) {
-                            onOpenCircularTimeframe(offset)
-                        } else {
-                            crosshairPos = offset
-                            isCrosshairEnabled = true
-                        }
-                    },
-                    onTap = { tapOffset ->
-                        if (isCrosshairEnabled) {
-                            // Single tap dismisses crosshair
-                            isCrosshairEnabled = false
-                            crosshairPos = null
-                            hoveredCandle = null
-                            return@detectTapGestures
-                        }
-
-                        if (onSelectCandleForReplay != null && candles.isNotEmpty()) {
-                            // Hit test candle for replay start
-                            val w = size.width
-                            val priceScaleWidth = 140f
-                            val chartW = w - priceScaleWidth
-                            val candleSpacing = candleWidth * 0.25f
-                            val totalSlot = candleWidth + candleSpacing
-                            val visibleCount = (chartW / totalSlot).toInt() + 2
-                            val rightIndex = (candles.lastIndex - scrollOffset.toInt()).coerceIn(0, candles.lastIndex)
-                            val leftIndex = (rightIndex - visibleCount).coerceAtLeast(0)
-
-                            for (i in rightIndex downTo leftIndex) {
-                                val distFromRight = rightIndex - i
-                                val x = chartW - (distFromRight * totalSlot) - candleWidth / 2
-                                if (abs(tapOffset.x - x) <= totalSlot / 2) {
-                                    onSelectCandleForReplay(i)
-                                    return@detectTapGestures
-                                }
+            // Gesture Handling: Unified for Crosshair, Drawing Mode, and Cursor Pan/Zoom
+            .then(
+                if (isCrosshairEnabled) {
+                    Modifier.pointerInput(isCrosshairEnabled) {
+                        detectDragGestures(
+                            onDrag = { change, _ ->
+                                crosshairPos = change.position
+                            },
+                            onDragEnd = { /* keep active */ }
+                        )
+                    }.pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                isCrosshairEnabled = false
+                                crosshairPos = null
+                                hoveredCandle = null
                             }
-                        }
+                        )
+                    }
+                } else if (activeDrawingTool != DrawingToolType.CURSOR) {
+                    // DRAWING MODE: Supports Drag-to-Draw, Continuous Brush, and Precision Tap-to-Draw
+                    Modifier.pointerInput(activeDrawingTool, candles.size, candleWidth, scrollOffset, verticalPanOffset) {
+                        val priceScaleWidth = 145f
+                        val chartW = size.width - priceScaleWidth
+                        val chartH = size.height - 44f
 
-                        if (activeDrawingTool == DrawingToolType.CURSOR) {
-                            // Check if tapped near an existing drawing
-                            val tapped = findDrawingNearPoint(
-                                tapOffset = tapOffset,
-                                drawings = drawings,
-                                candles = candles,
-                                candleWidth = candleWidth,
-                                scrollOffset = scrollOffset,
-                                chartWidth = size.width - 140f,
-                                chartHeight = size.height - 40f,
-                                settings = settings,
-                                verticalOffset = verticalPanOffset
-                            )
-                            onSelectDrawing(tapped)
-                        } else {
-                            // Click-to-add for drawing tools
-                            val pt = screenToChartPoint(
-                                tapOffset, candles, candleWidth, scrollOffset,
-                                size.width - 140f, size.height - 40f, settings, verticalPanOffset
-                            )
-                            if (pt != null) {
-                                when (activeDrawingTool) {
-                                    DrawingToolType.HORIZONTAL_LINE -> {
-                                        val item = DrawingItem(
-                                            symbol = symbol,
-                                            timeframeId = timeframe.id,
-                                            toolType = DrawingToolType.HORIZONTAL_LINE,
-                                            points = listOf(pt)
-                                        )
-                                        onAddDrawing(item)
-                                    }
-                                    DrawingToolType.VERTICAL_LINE -> {
-                                        val item = DrawingItem(
-                                            symbol = symbol,
-                                            timeframeId = timeframe.id,
-                                            toolType = DrawingToolType.VERTICAL_LINE,
-                                            points = listOf(pt)
-                                        )
-                                        onAddDrawing(item)
-                                    }
-                                    DrawingToolType.TEXT -> {
-                                        val item = DrawingItem(
-                                            symbol = symbol,
-                                            timeframeId = timeframe.id,
-                                            toolType = DrawingToolType.TEXT,
-                                            points = listOf(pt),
-                                            textContent = "Note @ ${String.format(Locale.US, "%.2f", pt.price)}"
-                                        )
-                                        onAddDrawing(item)
-                                    }
-                                    else -> {
+                        if (activeDrawingTool == DrawingToolType.HORIZONTAL_LINE ||
+                            activeDrawingTool == DrawingToolType.VERTICAL_LINE ||
+                            activeDrawingTool == DrawingToolType.TEXT
+                        ) {
+                            detectTapGestures { tapOffset ->
+                                val pt = screenToChartPoint(
+                                    tapOffset, candles, candleWidth, scrollOffset,
+                                    chartW, chartH, settings, verticalPanOffset
+                                ) ?: return@detectTapGestures
+
+                                val item = when (activeDrawingTool) {
+                                    DrawingToolType.HORIZONTAL_LINE -> DrawingItem(
+                                        symbol = symbol, timeframeId = timeframe.id,
+                                        toolType = DrawingToolType.HORIZONTAL_LINE,
+                                        points = listOf(pt)
+                                    )
+                                    DrawingToolType.VERTICAL_LINE -> DrawingItem(
+                                        symbol = symbol, timeframeId = timeframe.id,
+                                        toolType = DrawingToolType.VERTICAL_LINE,
+                                        points = listOf(pt)
+                                    )
+                                    DrawingToolType.TEXT -> DrawingItem(
+                                        symbol = symbol, timeframeId = timeframe.id,
+                                        toolType = DrawingToolType.TEXT,
+                                        points = listOf(pt),
+                                        textContent = "Note @ ${String.format(Locale.US, "%.2f", pt.price)}"
+                                    )
+                                    else -> return@detectTapGestures
+                                }
+                                onAddDrawing(item)
+                            }
+                        } else if (activeDrawingTool == DrawingToolType.BRUSH) {
+                            // Freehand Brush Dragging
+                            detectDragGestures(
+                                onDragStart = { startOffset ->
+                                    inProgressPoints.clear()
+                                    val pt = screenToChartPoint(
+                                        startOffset, candles, candleWidth, scrollOffset,
+                                        chartW, chartH, settings, verticalPanOffset
+                                    )
+                                    if (pt != null) inProgressPoints.add(pt)
+                                },
+                                onDrag = { change, _ ->
+                                    val pt = screenToChartPoint(
+                                        change.position, candles, candleWidth, scrollOffset,
+                                        chartW, chartH, settings, verticalPanOffset
+                                    )
+                                    if (pt != null) {
                                         inProgressPoints.add(pt)
-                                        val requiredPoints = when (activeDrawingTool) {
-                                            DrawingToolType.TREND_LINE, DrawingToolType.HORIZONTAL_RAY,
-                                            DrawingToolType.RECTANGLE, DrawingToolType.FIB_RETRACEMENT,
-                                            DrawingToolType.PRICE_RANGE -> 2
-                                            DrawingToolType.FIB_EXTENSION, DrawingToolType.PARALLEL_CHANNEL -> 3
-                                            else -> 2
+                                    }
+                                },
+                                onDragEnd = {
+                                    if (inProgressPoints.size >= 2) {
+                                        val item = DrawingItem(
+                                            symbol = symbol,
+                                            timeframeId = timeframe.id,
+                                            toolType = DrawingToolType.BRUSH,
+                                            points = inProgressPoints.toList()
+                                        )
+                                        onAddDrawing(item)
+                                    }
+                                    inProgressPoints.clear()
+                                },
+                                onDragCancel = {
+                                    inProgressPoints.clear()
+                                }
+                            )
+                        } else {
+                            // 2-point and 3-point tools: Drag-to-Draw + Tap-to-Draw
+                            var startOffset = Offset.Zero
+                            var hasDragged = false
+
+                            detectDragGestures(
+                                onDragStart = { startPos ->
+                                    startOffset = startPos
+                                    hasDragged = false
+                                    val pt = screenToChartPoint(
+                                        startPos, candles, candleWidth, scrollOffset,
+                                        chartW, chartH, settings, verticalPanOffset
+                                    )
+                                    if (pt != null) {
+                                        if (inProgressPoints.isEmpty()) {
+                                            inProgressPoints.add(pt)
                                         }
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    val dist = (change.position - startOffset).getDistance()
+                                    if (dist > 12f) {
+                                        hasDragged = true
+                                    }
+                                    val pt = screenToChartPoint(
+                                        change.position, candles, candleWidth, scrollOffset,
+                                        chartW, chartH, settings, verticalPanOffset
+                                    )
+                                    if (pt != null && inProgressPoints.isNotEmpty()) {
+                                        if (inProgressPoints.size == 1) {
+                                            inProgressPoints.add(pt)
+                                        } else {
+                                            inProgressPoints[1] = pt
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    val requiredPoints = when (activeDrawingTool) {
+                                        DrawingToolType.FIB_EXTENSION, DrawingToolType.PARALLEL_CHANNEL -> 3
+                                        else -> 2
+                                    }
+                                    if (hasDragged && inProgressPoints.size >= 2) {
+                                        val item = DrawingItem(
+                                            symbol = symbol,
+                                            timeframeId = timeframe.id,
+                                            toolType = activeDrawingTool,
+                                            points = inProgressPoints.toList()
+                                        )
+                                        onAddDrawing(item)
+                                        inProgressPoints.clear()
+                                    } else if (!hasDragged) {
+                                        // Tap placement: finalize if reached required points
                                         if (inProgressPoints.size >= requiredPoints) {
                                             val item = DrawingItem(
                                                 symbol = symbol,
@@ -250,45 +294,105 @@ fun CandlestickChart(
                                             inProgressPoints.clear()
                                         }
                                     }
+                                },
+                                onDragCancel = {
+                                    inProgressPoints.clear()
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    // CURSOR MODE: Multi-touch focal pinch zoom, buttery smooth pan, and tap selection
+                    Modifier
+                        .pointerInput(activeDrawingTool, candles.size, candleWidth, scrollOffset) {
+                            val priceScaleWidth = 145f
+                            val chartW = size.width - priceScaleWidth
+
+                            detectTransformGestures { centroid, pan, zoom, _ ->
+                                val oldSlot = candleWidth * 1.25f
+
+                                // Multi-touch Pinch-to-Zoom around Centroid
+                                if (zoom != 1f) {
+                                    val newCandleWidth = (candleWidth * zoom).coerceIn(4f, 80f)
+                                    val newSlot = newCandleWidth * 1.25f
+
+                                    // Distance of pinch centroid from right edge
+                                    val centroidDistFromRight = (chartW - centroid.x).coerceAtLeast(0f)
+                                    val candleOffsetAtCentroid = centroidDistFromRight / oldSlot
+                                    val scrollAdjustment = candleOffsetAtCentroid * (1f - (oldSlot / newSlot))
+
+                                    val maxScroll = (candles.size - 5).coerceAtLeast(0).toFloat()
+                                    scrollOffset = (scrollOffset + scrollAdjustment).coerceIn(0f, maxScroll)
+                                    candleWidth = newCandleWidth
+                                }
+
+                                // Fluid Horizontal Pan
+                                if (pan.x != 0f) {
+                                    val currentSlot = candleWidth * 1.25f
+                                    val candleDelta = -pan.x / currentSlot
+                                    val maxScroll = (candles.size - 5).coerceAtLeast(0).toFloat()
+                                    scrollOffset = (scrollOffset + candleDelta).coerceIn(0f, maxScroll)
+                                    if (scrollOffset >= maxScroll - 10f) {
+                                        onLoadMoreHistory()
+                                    }
+                                }
+
+                                // Vertical Pan
+                                if (!settings.isScaleLocked && pan.y != 0f) {
+                                    verticalPanOffset += pan.y
                                 }
                             }
                         }
-                    }
-                )
-            }
-            // Smooth Pan & Pinch Gesture handling
-            .pointerInput(activeDrawingTool, candles.size, isCrosshairEnabled) {
-                if (isCrosshairEnabled) {
-                    // When crosshair is active, drag tracks the crosshair position
-                    detectDragGestures(
-                        onDrag = { change, _ ->
-                            crosshairPos = change.position
-                        },
-                        onDragEnd = { /* keep active until tap */ }
-                    )
-                } else if (activeDrawingTool == DrawingToolType.CURSOR) {
-                    // Butter-smooth scrolling and zoom
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        // Smooth pinch to zoom
-                        if (zoom != 1f) {
-                            candleWidth = (candleWidth * zoom).coerceIn(4f, 60f)
+                        .pointerInput(activeDrawingTool, drawings, candles.size) {
+                            val priceScaleWidth = 145f
+                            val chartW = size.width - priceScaleWidth
+                            val chartH = size.height - 44f
+
+                            detectTapGestures(
+                                onLongPress = { offset ->
+                                    if (isCrosshairEnabled) {
+                                        onOpenCircularTimeframe(offset)
+                                    } else {
+                                        crosshairPos = offset
+                                        isCrosshairEnabled = true
+                                    }
+                                },
+                                onTap = { tapOffset ->
+                                    if (isCrosshairEnabled) {
+                                        isCrosshairEnabled = false
+                                        crosshairPos = null
+                                        hoveredCandle = null
+                                        return@detectTapGestures
+                                    }
+
+                                    // Hit test candle for replay
+                                    if (onSelectCandleForReplay != null && candles.isNotEmpty()) {
+                                        val totalSlot = candleWidth * 1.25f
+                                        val rightIdxFloat = candles.lastIndex.toFloat() - scrollOffset
+                                        val distFromRight = (chartW - tapOffset.x) / totalSlot
+                                        val candleIdx = (rightIdxFloat - distFromRight).roundToInt().coerceIn(0, candles.lastIndex)
+                                        onSelectCandleForReplay(candleIdx)
+                                        return@detectTapGestures
+                                    }
+
+                                    // Hit test drawing selection
+                                    val tapped = findDrawingNearPoint(
+                                        tapOffset = tapOffset,
+                                        drawings = drawings,
+                                        candles = candles,
+                                        candleWidth = candleWidth,
+                                        scrollOffset = scrollOffset,
+                                        chartWidth = chartW,
+                                        chartHeight = chartH,
+                                        settings = settings,
+                                        verticalOffset = verticalPanOffset
+                                    )
+                                    onSelectDrawing(tapped)
+                                }
+                            )
                         }
-                        // Fluid horizontal scrolling
-                        if (pan.x != 0f) {
-                            val candleDelta = -pan.x / candleWidth
-                            val maxScroll = (candles.size - 5).coerceAtLeast(0).toFloat()
-                            scrollOffset = (scrollOffset + candleDelta).coerceIn(0f, maxScroll)
-                            if (scrollOffset >= maxScroll - 10f) {
-                                onLoadMoreHistory()
-                            }
-                        }
-                        // Vertical pan (only if scale is not locked)
-                        if (!settings.isScaleLocked && pan.y != 0f) {
-                            verticalPanOffset += pan.y
-                        }
-                    }
                 }
-            }
+            )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
@@ -387,13 +491,45 @@ fun CandlestickChart(
             }
 
             fun timeToX(t: Long): Float {
-                val idx = candles.indexOfFirst { it.openTime >= t }
-                return if (idx >= 0) {
-                    val dist = rightIndex - idx
-                    chartRight - (dist * totalSlotWidth) - (candleWidth / 2f)
+                if (candles.isEmpty()) return chartRight
+                val rightIdxFloat = (candles.lastIndex.toFloat() - scrollOffset)
+                val firstT = candles.first().openTime
+                val lastT = candles.last().openTime
+                val avgSlotMs = if (candles.size > 1) (lastT - firstT).toDouble() / (candles.size - 1) else timeframe.durationMs.toDouble()
+
+                val candleIdxFloat: Float = if (t <= firstT) {
+                    val diff = (t - firstT) / avgSlotMs
+                    diff.toFloat()
+                } else if (t >= lastT) {
+                    val diff = (t - lastT) / avgSlotMs
+                    (candles.lastIndex).toFloat() + diff.toFloat()
                 } else {
-                    chartRight
+                    var low = 0
+                    var high = candles.lastIndex
+                    while (low <= high) {
+                        val mid = (low + high) ushr 1
+                        if (candles[mid].openTime == t) {
+                            low = mid
+                            high = mid - 1
+                            break
+                        } else if (candles[mid].openTime < t) {
+                            low = mid + 1
+                        } else {
+                            high = mid - 1
+                        }
+                    }
+                    val prev = (low - 1).coerceIn(0, candles.lastIndex)
+                    val next = low.coerceIn(0, candles.lastIndex)
+                    if (prev == next) {
+                        prev.toFloat()
+                    } else {
+                        val span = (candles[next].openTime - candles[prev].openTime).coerceAtLeast(1)
+                        val frac = (t - candles[prev].openTime).toFloat() / span
+                        prev.toFloat() + frac
+                    }
                 }
+                val dist = rightIdxFloat - candleIdxFloat
+                return chartRight - (dist * totalSlotWidth) - (candleWidth / 2f)
             }
 
             // 1. Watermark background showing Symbol, Timeframe, and Candle Price Source
@@ -462,7 +598,7 @@ fun CandlestickChart(
                 val volHeight = chartHeight * 0.18f
                 for (i in rightIndex downTo leftIndex) {
                     val candle = candles[i]
-                    val distFromRight = rightIndex - i
+                    val distFromRight = (candles.lastIndex.toFloat() - scrollOffset) - i
                     val x = chartRight - (distFromRight * totalSlotWidth) - candleWidth
                     val barH = ((candle.volume / maxVol) * volHeight).toFloat()
                     val y = chartHeight - barH
@@ -483,7 +619,7 @@ fun CandlestickChart(
             // 4. Candlesticks
             for (i in rightIndex downTo leftIndex) {
                 val candle = candles[i]
-                val distFromRight = rightIndex - i
+                val distFromRight = (candles.lastIndex.toFloat() - scrollOffset) - i
                 val x = chartRight - (distFromRight * totalSlotWidth) - candleWidth
                 val centerX = x + candleWidth / 2f
 
@@ -1238,9 +1374,66 @@ private fun DrawScope.drawInProgressDrawing(
     timeToX: (Long) -> Float
 ) {
     if (points.isEmpty()) return
+    val stroke = Stroke(width = 3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f))
     val p1 = points[0]
     val o1 = Offset(timeToX(p1.timestamp), priceToY(p1.price))
-    drawCircle(color = TVBlue, radius = 6f, center = o1)
+    drawCircle(color = TVBlue, radius = 7f, center = o1)
+    drawCircle(color = Color.White, radius = 3f, center = o1)
+
+    if (points.size >= 2) {
+        val p2 = points[1]
+        val o2 = Offset(timeToX(p2.timestamp), priceToY(p2.price))
+        drawCircle(color = TVBlue, radius = 7f, center = o2)
+        drawCircle(color = Color.White, radius = 3f, center = o2)
+
+        when (tool) {
+            DrawingToolType.TREND_LINE -> {
+                drawLine(color = TVBlue, start = o1, end = o2, strokeWidth = 3f, pathEffect = stroke.pathEffect)
+            }
+            DrawingToolType.HORIZONTAL_RAY -> {
+                drawLine(color = TVBlue, start = o1, end = Offset(chartRight, o1.y), strokeWidth = 3f, pathEffect = stroke.pathEffect)
+            }
+            DrawingToolType.RECTANGLE -> {
+                val left = min(o1.x, o2.x)
+                val top = min(o1.y, o2.y)
+                val rectW = abs(o2.x - o1.x)
+                val rectH = abs(o2.y - o1.y)
+                drawRect(color = TVBlue.copy(alpha = 0.2f), topLeft = Offset(left, top), size = Size(rectW, rectH))
+                drawRect(color = TVBlue, topLeft = Offset(left, top), size = Size(rectW, rectH), style = stroke)
+            }
+            DrawingToolType.PRICE_RANGE -> {
+                val left = min(o1.x, o2.x)
+                val top = min(o1.y, o2.y)
+                val rectW = abs(o2.x - o1.x)
+                val rectH = abs(o2.y - o1.y)
+                val priceDiff = p2.price - p1.price
+                val boxColor = if (priceDiff >= 0) BullGreen else BearRed
+                drawRect(color = boxColor.copy(alpha = 0.2f), topLeft = Offset(left, top), size = Size(rectW, rectH))
+                drawRect(color = boxColor, topLeft = Offset(left, top), size = Size(rectW, rectH), style = stroke)
+            }
+            DrawingToolType.FIB_RETRACEMENT -> {
+                drawLine(color = TVBlue, start = o1, end = o2, strokeWidth = 2f)
+                val diff = p2.price - p1.price
+                val levels = listOf(0.0, 0.382, 0.5, 0.618, 1.0)
+                levels.forEach { fib ->
+                    val ly = priceToY(p1.price + (diff * fib))
+                    drawLine(color = TVBlue.copy(alpha = 0.7f), start = Offset(min(o1.x, o2.x), ly), end = Offset(chartRight, ly), strokeWidth = 1.2f, pathEffect = stroke.pathEffect)
+                }
+            }
+            DrawingToolType.BRUSH -> {
+                val path = Path()
+                path.moveTo(o1.x, o1.y)
+                for (i in 1 until points.size) {
+                    val pt = points[i]
+                    path.lineTo(timeToX(pt.timestamp), priceToY(pt.price))
+                }
+                drawPath(path = path, color = TVBlue, style = Stroke(width = 3.5f))
+            }
+            else -> {
+                drawLine(color = TVBlue, start = o1, end = o2, strokeWidth = 3f, pathEffect = stroke.pathEffect)
+            }
+        }
+    }
 }
 
 private fun screenToChartPoint(
@@ -1255,20 +1448,43 @@ private fun screenToChartPoint(
 ): ChartPoint? {
     if (candles.isEmpty()) return null
     val totalSlot = candleWidth + (candleWidth * 0.25f)
-    val rightIndex = (candles.lastIndex - scrollOffset.toInt()).coerceIn(0, candles.lastIndex)
+    val rightIdxFloat = (candles.lastIndex.toFloat() - scrollOffset)
+    val distFromRight = (chartWidth - tap.x) / totalSlot
+    val idxFloat = rightIdxFloat - distFromRight
 
-    val distFromRight = ((chartWidth - tap.x) / totalSlot).roundToInt()
-    val candleIdx = (rightIndex - distFromRight).coerceIn(0, candles.lastIndex)
-    val candle = candles[candleIdx]
+    val firstT = candles.first().openTime
+    val lastT = candles.last().openTime
+    val avgSlotMs = if (candles.size > 1) (lastT - firstT).toDouble() / (candles.size - 1) else 60000.0
+
+    val timestamp: Long = if (idxFloat <= 0f) {
+        (firstT + idxFloat * avgSlotMs).toLong()
+    } else if (idxFloat >= candles.lastIndex.toFloat()) {
+        val excess = idxFloat - candles.lastIndex.toFloat()
+        (lastT + excess * avgSlotMs).toLong()
+    } else {
+        val base = idxFloat.toInt().coerceIn(0, candles.lastIndex - 1)
+        val frac = (idxFloat - base).toDouble()
+        val t0 = candles[base].openTime
+        val t1 = candles[base + 1].openTime
+        (t0 + frac * (t1 - t0)).toLong()
+    }
 
     val minP = candles.minOfOrNull { it.low } ?: 0.0
     val maxP = candles.maxOfOrNull { it.high } ?: 1.0
     val range = (maxP - minP).coerceAtLeast(0.0001)
 
-    val norm = (1f - ((tap.y - verticalOffset) / chartHeight)).coerceIn(0f, 1f)
-    val price = minP + norm * range
+    var norm = (1f - ((tap.y - verticalOffset) / chartHeight)).coerceIn(0f, 1f)
+    if (settings.isInverted) norm = 1f - norm
 
-    return ChartPoint(timestamp = candle.openTime, price = price)
+    val price = if (settings.isLogarithmic) {
+        val logMin = ln(minP.coerceAtLeast(0.00001))
+        val logMax = ln(maxP.coerceAtLeast(0.00001))
+        Math.exp((norm * (logMax - logMin) + logMin).toDouble())
+    } else {
+        minP + norm * range
+    }
+
+    return ChartPoint(timestamp = timestamp, price = price)
 }
 
 private fun findDrawingNearPoint(
@@ -1282,19 +1498,62 @@ private fun findDrawingNearPoint(
     settings: ChartScaleSettings,
     verticalOffset: Float
 ): DrawingItem? {
+    if (candles.isEmpty()) return null
+    val totalSlot = candleWidth + (candleWidth * 0.25f)
+    val rightIdxFloat = (candles.lastIndex.toFloat() - scrollOffset)
+    val firstT = candles.first().openTime
+    val lastT = candles.last().openTime
+    val avgSlotMs = if (candles.size > 1) (lastT - firstT).toDouble() / (candles.size - 1) else 60000.0
+
+    fun tToX(t: Long): Float {
+        val candleIdxFloat: Float = if (t <= firstT) {
+            val diff = (t - firstT) / avgSlotMs
+            diff.toFloat()
+        } else if (t >= lastT) {
+            val diff = (t - lastT) / avgSlotMs
+            (candles.lastIndex).toFloat() + diff.toFloat()
+        } else {
+            val base = ((t - firstT).toDouble() / avgSlotMs).toFloat().coerceIn(0f, candles.lastIndex.toFloat())
+            base
+        }
+        val dist = rightIdxFloat - candleIdxFloat
+        return chartWidth - (dist * totalSlot) - (candleWidth / 2f)
+    }
+
+    val minP = candles.minOfOrNull { it.low } ?: 0.0
+    val maxP = candles.maxOfOrNull { it.high } ?: 1.0
+    val range = (maxP - minP).coerceAtLeast(0.0001)
+
+    fun pToY(p: Double): Float {
+        var norm = ((p - minP) / range).toFloat().coerceIn(0f, 1f)
+        if (settings.isInverted) norm = 1f - norm
+        return chartHeight - (norm * chartHeight) + verticalOffset
+    }
+
     for (d in drawings.reversed()) {
         for (pt in d.points) {
-            val idx = candles.indexOfFirst { it.openTime >= pt.timestamp }
-            if (idx >= 0) {
-                val totalSlot = candleWidth + (candleWidth * 0.25f)
-                val rightIndex = (candles.lastIndex - scrollOffset.toInt()).coerceIn(0, candles.lastIndex)
-                val dist = rightIndex - idx
-                val x = chartWidth - (dist * totalSlot)
-                val minP = candles.minOfOrNull { it.low } ?: 0.0
-                val maxP = candles.maxOfOrNull { it.high } ?: 1.0
-                val range = (maxP - minP).coerceAtLeast(0.0001)
-                val y = chartHeight - (((pt.price - minP) / range).toFloat() * chartHeight)
-                if (abs(tapOffset.x - x) < 30f && abs(tapOffset.y - y) < 30f) {
+            val x = tToX(pt.timestamp)
+            val y = pToY(pt.price)
+            if (abs(tapOffset.x - x) < 38f && abs(tapOffset.y - y) < 38f) {
+                return d
+            }
+        }
+        if (d.points.size >= 2) {
+            val x1 = tToX(d.points[0].timestamp)
+            val y1 = pToY(d.points[0].price)
+            val x2 = tToX(d.points[1].timestamp)
+            val y2 = pToY(d.points[1].price)
+            val midX = (x1 + x2) / 2f
+            val midY = (y1 + y2) / 2f
+            if (abs(tapOffset.x - midX) < 30f && abs(tapOffset.y - midY) < 30f) {
+                return d
+            }
+            if (d.toolType == DrawingToolType.RECTANGLE) {
+                val left = min(x1, x2)
+                val right = max(x1, x2)
+                val top = min(y1, y2)
+                val bottom = max(y1, y2)
+                if (tapOffset.x in (left - 10f)..(right + 10f) && tapOffset.y in (top - 10f)..(bottom + 10f)) {
                     return d
                 }
             }
