@@ -1,0 +1,6 @@
+{
+  "name": "ApexTrade",
+  "description": "Professional mobile trading platform with Binance USD-M Futures charts, circular timeframe selector, drawing tools, and alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

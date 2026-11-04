@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Candle 1: Bullish Green -->
+    <path
+        android:strokeColor="#0ECB81"
+        android:strokeWidth="2.5"
+        android:pathData="M34,30 L34,74" />
+    <path
+        android:fillColor="#0ECB81"
+        android:pathData="M28,42 H40 V64 H28 Z" />
+
+    <!-- Candle 2: Bearish Red -->
+    <path
+        android:strokeColor="#F6465D"
+        android:strokeWidth="2.5"
+        android:pathData="M54,36 L54,80" />
+    <path
+        android:fillColor="#F6465D"
+        android:pathData="M48,50 H60 V72 H48 Z" />
+
+    <!-- Candle 3: Bullish Green -->
+    <path
+        android:strokeColor="#0ECB81"
+        android:strokeWidth="2.5"
+        android:pathData="M74,24 L74,68" />
+    <path
+        android:fillColor="#0ECB81"
+        android:pathData="M68,34 H80 V56 H68 Z" />
+
+    <!-- Dynamic Trend Arrow Line -->
+    <path
+        android:strokeColor="#F0B90B"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M24,76 L44,66 L60,70 L84,30" />
+    <path
+        android:fillColor="#F0B90B"
+        android:pathData="M84,30 L74,31 L80,39 Z" />
+</vector>
